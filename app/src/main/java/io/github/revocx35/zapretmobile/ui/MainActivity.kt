@@ -39,7 +39,8 @@ class MainActivity : ComponentActivity() {
                 MainScreen(vm = vm, onToggle = ::onToggle)
             }
         }
-        if (intent?.getBooleanExtra(EXTRA_AUTO_START, false) == true) {
+        // Only on a fresh launch: after rotation the same intent is redelivered.
+        if (savedInstanceState == null && intent?.getBooleanExtra(EXTRA_AUTO_START, false) == true) {
             onToggle(true)
         }
     }

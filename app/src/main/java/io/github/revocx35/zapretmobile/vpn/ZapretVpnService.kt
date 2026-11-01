@@ -56,7 +56,13 @@ class ZapretVpnService : VpnService() {
     }
 
     private fun startVpn(intent: Intent?) {
-        if (engine != null) return // already running
+        // startForegroundService() obliges us to call startForeground() within a few
+        // seconds, even when the tunnel is already up; skipping it crashes the app.
+        if (engine != null) {
+            startForegroundCompat()
+            updateNotification(getString(R.string.notif_connected))
+            return
+        }
         VpnState.setStatus(VpnStatus.CONNECTING)
         startForegroundCompat()
 

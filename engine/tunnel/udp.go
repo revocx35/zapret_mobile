@@ -14,11 +14,16 @@ import (
 func dialProtectedUDP(ctx context.Context, ip net.IP, port int, p desync.Protector) (*net.UDPConn, error) {
 	var d net.Dialer
 	d.Control = func(network, address string, c syscall.RawConn) error {
-		return c.Control(func(fd uintptr) {
-			if p != nil {
-				p.Protect(int(fd))
+		var perr error
+		cerr := c.Control(func(fd uintptr) {
+			if p != nil && !p.Protect(int(fd)) {
+				perr = desync.ErrProtectFailed
 			}
 		})
+		if cerr != nil {
+			return cerr
+		}
+		return perr
 	}
 	c, err := d.DialContext(ctx, "udp", net.JoinHostPort(ip.String(), itoa(port)))
 	if err != nil {

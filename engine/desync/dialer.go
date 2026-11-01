@@ -2,6 +2,7 @@ package desync
 
 import (
 	"context"
+	"errors"
 	"net"
 	"sync"
 	"syscall"
@@ -16,6 +17,9 @@ import (
 type Protector interface {
 	Protect(fd int) bool
 }
+
+// ErrProtectFailed is returned when the host refuses to protect a socket.
+var ErrProtectFailed = errors.New("protect socket failed")
 
 // Config configures a Dialer.
 type Config struct {
@@ -35,12 +39,19 @@ type Dialer struct {
 func NewDialer(cfg Config) *Dialer {
 	d := &Dialer{cfg: cfg}
 	d.nd.Control = func(network, address string, c syscall.RawConn) error {
-		return c.Control(func(fd uintptr) {
+		var perr error
+		cerr := c.Control(func(fd uintptr) {
 			_ = unix.SetsockoptInt(int(fd), unix.IPPROTO_TCP, unix.TCP_NODELAY, 1)
-			if cfg.Protector != nil {
-				cfg.Protector.Protect(int(fd))
+			// Fail closed: an unprotected socket would be routed back into the TUN
+			// and loop forever.
+			if cfg.Protector != nil && !cfg.Protector.Protect(int(fd)) {
+				perr = ErrProtectFailed
 			}
 		})
+		if cerr != nil {
+			return cerr
+		}
+		return perr
 	}
 	return d
 }

@@ -2,6 +2,7 @@ package desync
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"io"
 	"net"
@@ -94,5 +95,53 @@ func TestSocksEndToEnd(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for target")
+	}
+}
+
+type denyProtector struct{}
+
+func (denyProtector) Protect(int) bool { return false }
+
+// A refused Protect must fail the dial (fail closed) instead of leaving an
+// unprotected socket that would loop back into the TUN.
+func TestDialFailsWhenProtectRefused(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	d := NewDialer(Config{Strategy: Default(), Protector: denyProtector{}})
+	c, err := d.DialContext(context.Background(), "tcp", ln.Addr().String())
+	if err == nil {
+		c.Close()
+		t.Fatal("dial succeeded with an unprotected socket")
+	}
+}
+
+func TestSocksRejectsEmptyDomain(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		c, err := net.Dial("tcp", ln.Addr().String())
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		c.Write([]byte{socksVersion, 1, 0, socksVersion, cmdConnect, 0, atypDomain, 0, 0, 80})
+		io.Copy(io.Discard, c)
+	}()
+	a, err := ln.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	_ = a.SetDeadline(time.Now().Add(3 * time.Second))
+	start := time.Now()
+	_, err = socksHandshake(a)
+	if err == nil || time.Since(start) > time.Second {
+		t.Fatalf("empty domain not rejected promptly: %v", err)
 	}
 }

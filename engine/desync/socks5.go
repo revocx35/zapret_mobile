@@ -136,6 +136,10 @@ func socksHandshake(c net.Conn) (string, error) {
 		if _, err := io.ReadFull(c, b); err != nil {
 			return "", err
 		}
+		if len(b) == 0 {
+			_ = writeSocksReply(c, repGeneralFailure)
+			return "", fmt.Errorf("empty domain name")
+		}
 		host = string(b)
 	default:
 		_ = writeSocksReply(c, repAddrTypeNotSupport)
